@@ -1,5 +1,15 @@
 # ClauDEtour TODO
 
+## Unified Logging System (NEW)
+- [x] Add session tracking to interceptor logs
+- [x] Create decision ID correlation between approval and execution
+- [x] Log execution results with timing and output metrics
+- [x] Create session analyzer tool
+- [ ] Create claude-wrapper to capture full console output
+- [ ] Integrate with Claude's native logging (clog)
+- [ ] Build visualization tools for session analysis
+- [ ] Create ML training data exporter
+
 ## Installation & Structure
 - [ ] Move interceptor to proper system location (e.g., `/opt/claudetour/`)
 - [ ] Create proper installation script
@@ -38,6 +48,10 @@
 - [ ] Quick-fix buttons for common corrections
 - [ ] Keyboard shortcuts for power users
 - [ ] Better feedback mechanism (not just text field)
+- [ ] Fix Tab key erasing command in edit field
+- [ ] Make original command field selectable/copyable
+- [ ] Add Ctrl+A to select all in edit field
+- [ ] Prevent focus issues with Tab navigation
 
 ## Analysis Tools
 - [ ] Log analyzer script to find patterns

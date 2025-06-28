@@ -180,8 +180,93 @@ def cli_ask(original: str, corrected: str, auto_sec: int):
 ###############################################################################
 # Core
 ###############################################################################
-def run_real_bash(cmdline: str):
-    return subprocess.call([REAL_BASH, "-lc", cmdline])
+def run_real_bash(cmdline: str, decision_id: str, session_id: str):
+    """Run command and capture output for logging"""
+    import subprocess
+    from datetime import datetime, timezone
+    
+    start_time = datetime.now(timezone.utc)
+    
+    # Run command and capture output
+    proc = subprocess.Popen(
+        [REAL_BASH, "-lc", cmdline],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    stdout, stderr = proc.communicate()
+    returncode = proc.returncode
+    
+    end_time = datetime.now(timezone.utc)
+    duration_ms = int((end_time - start_time).total_seconds() * 1000)
+    
+    # Log execution result
+    result = {
+        "ts": end_time.isoformat().replace('+00:00', 'Z'),
+        "type": "execution",
+        "session_id": session_id,
+        "decision_id": decision_id,
+        "returncode": returncode,
+        "duration_ms": duration_ms,
+        "stdout_lines": len(stdout.splitlines()) if stdout else 0,
+        "stderr_lines": len(stderr.splitlines()) if stderr else 0,
+    }
+    
+    # Include actual output for errors or if there's important info
+    if returncode != 0:
+        result["stdout"] = stdout[:1000]  # First 1000 chars
+        result["stderr"] = stderr[:1000]
+    elif stderr:
+        result["stderr"] = stderr[:500]  # Warnings/info
+    
+    log(result)
+    
+    # Print output as normal
+    if stdout:
+        print(stdout, end='')
+    if stderr:
+        print(stderr, end='', file=sys.stderr)
+    
+    return returncode
+
+def get_claude_session_info():
+    """Get Claude session PID and start time for correlation"""
+    try:
+        ppid = os.getppid()
+        # Walk up process tree to find the main Claude process
+        current_pid = ppid
+        claude_pid = None
+        
+        for _ in range(5):  # Max 5 levels up
+            cmdline_path = Path(f"/proc/{current_pid}/cmdline")
+            if cmdline_path.exists():
+                cmdline = cmdline_path.read_text()
+                if "claude" in cmdline and "node" in cmdline:
+                    claude_pid = current_pid
+                    break
+            # Get parent of current
+            stat_path = Path(f"/proc/{current_pid}/stat")
+            if stat_path.exists():
+                stat_parts = stat_path.read_text().split()
+                current_pid = int(stat_parts[3])  # ppid is 4th field
+            else:
+                break
+        
+        if claude_pid:
+            # Get process start time for session identification
+            stat_path = Path(f"/proc/{claude_pid}/stat")
+            if stat_path.exists():
+                stat_parts = stat_path.read_text().split(')')
+                if len(stat_parts) > 1:
+                    # Start time is field 22 after the command name
+                    fields = stat_parts[1].split()
+                    if len(fields) >= 20:
+                        start_time = fields[19]
+                        return claude_pid, start_time
+        
+        return ppid, "unknown"
+    except:
+        return os.getppid(), "unknown"
 
 def main():
     # Check if we're being called by Claude
@@ -198,10 +283,17 @@ def main():
         os.execv(REAL_BASH, [REAL_BASH] + sys.argv[1:])
         return
     
+    # Get Claude session info - check env var first
+    session_id = os.getenv("CLAUDETOUR_SESSION_ID")
+    if not session_id:
+        claude_pid, claude_start = get_claude_session_info()
+        session_id = f"{claude_pid}_{claude_start}"
+    
     # Debug: log what we received from Claude
     debug_decision = {
         "ts": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         "debug": True,
+        "session_id": session_id,
         "argv": sys.argv,
         "parent": parent_cmd if 'parent_cmd' in locals() else "unknown"
     }
@@ -231,8 +323,15 @@ def main():
         os.execv(REAL_BASH, [REAL_BASH] + sys.argv[1:])
         return
 
+    # Generate unique decision ID for correlation
+    import uuid
+    decision_id = str(uuid.uuid4())[:8]
+    
     decision = {
+        "id": decision_id,
+        "session_id": session_id,
         "ts": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+        "type": "decision",
         "orig": cmd, "corr": None, "mode": None,
         "passthru": False, "fixes": [],
     }
@@ -242,7 +341,7 @@ def main():
         decision["passthru"] = True
         decision["corr"] = cmd
         log(decision)
-        sys.exit(run_real_bash(cmd))
+        sys.exit(run_real_bash(cmd, decision_id, session_id))
 
     # Apply automatic rules
     corrected, fixes = apply_fixes(cmd)
@@ -265,7 +364,7 @@ def main():
     
     # If user rejected, print clear error message
     if mode == "rejected":
-        print("\n⚠️ CLAUDETOUR INTERCEPTOR: User REJECTED command correction", file=sys.stderr)
+        print(f"\n⚠️ CLAUDETOUR INTERCEPTOR: User REJECTED command correction [ID: {decision_id}]", file=sys.stderr)
         print(f"   Original: {cmd}", file=sys.stderr)
         print(f"   Suggested: {corrected}", file=sys.stderr)
         print(f"   sys.argv: {sys.argv}", file=sys.stderr)
@@ -273,17 +372,28 @@ def main():
         if feedback:
             print(f"   User feedback: {feedback}", file=sys.stderr)
         print("   [EXECUTION BLOCKED BY USER]", file=sys.stderr)
+        
+        # Log rejection result
+        log({
+            "id": decision_id + "-result",
+            "ts": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "type": "execution",
+            "session_id": session_id,
+            "decision_id": decision_id,
+            "returncode": 1,
+            "status": "rejected"
+        })
         sys.exit(1)
     
     # Show what happened with the command
     if mode == "edited":
-        print(f"\n✏️  CLAUDETOUR: Command was EDITED by user", file=sys.stderr)
+        print(f"\n✏️  CLAUDETOUR: Command was EDITED by user [ID: {decision_id}]", file=sys.stderr)
         if feedback:
             print(f"   Feedback: {feedback}", file=sys.stderr)
     elif feedback:  # Only show if there's feedback, regardless of mode
-        print(f"\n💬 CLAUDETOUR: {feedback}", file=sys.stderr)
+        print(f"\n💬 CLAUDETOUR: {feedback} [ID: {decision_id}]", file=sys.stderr)
     
-    sys.exit(run_real_bash(corrected))
+    sys.exit(run_real_bash(corrected, decision_id, session_id))
 
 ###############################################################################
 if __name__ == "__main__":
