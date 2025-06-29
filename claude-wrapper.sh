@@ -58,6 +58,13 @@ if [ -t 1 ]; then
         -c "$CLAUDE_CMD $(printf '%q ' "$@")" \
         "$LOG_DIR/${SESSION_ID}.transcript"
     EXIT_CODE=$?
+    
+    # Clean the transcript automatically if cleaner exists
+    CLEANER="$(dirname "$0")/clean-transcript.py"
+    if [ -x "$CLEANER" ]; then
+        echo "Cleaning transcript..." >&2
+        "$CLEANER" "$LOG_DIR/${SESSION_ID}.transcript" "$LOG_DIR/${SESSION_ID}.log" >&2
+    fi
 else
     # Non-interactive - use tee
     # Capture both stdout and stderr
