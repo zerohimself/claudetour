@@ -110,6 +110,40 @@ Just use Claude normally! When ClauDEtour detects a correction opportunity:
    - `Escape` - Cancel/reject
    - `Tab` - Move between fields
 
+### Enhanced Session Logging
+
+For complete session capture with transcript correlation, use the claude-wrapper:
+
+```bash
+# Instead of running claude directly:
+claude
+
+# Use the wrapper for full logging:
+/path/to/claudetour/claude-wrapper.sh
+```
+
+This captures:
+- Full terminal transcript with timestamps
+- All interceptor decisions and corrections
+- Execution results and timing
+- Unified session correlation
+
+Analyze sessions with:
+```bash
+# Analyze the latest session with full correlation
+./analyze-unified.py
+
+# Analyze a specific session
+./analyze-unified.py 12345_67890
+
+# Basic analysis (interceptor logs only)
+./analyze-session.py latest
+```
+
+Session logs are stored in:
+- `~/.claude_tour/sessions/` - Individual session files
+- `~/.claude_tour/log.jsonl` - Main log with all events
+
 ## Examples
 
 ### Path Correction

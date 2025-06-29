@@ -5,7 +5,8 @@
 - [x] Create decision ID correlation between approval and execution
 - [x] Log execution results with timing and output metrics
 - [x] Create session analyzer tool
-- [ ] Create claude-wrapper to capture full console output
+- [x] Create claude-wrapper to capture full console output
+- [x] Create unified analyzer for transcript correlation
 - [ ] Integrate with Claude's native logging (clog)
 - [ ] Build visualization tools for session analysis
 - [ ] Create ML training data exporter
